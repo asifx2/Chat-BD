@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Messenger Login</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: linear-gradient(to right, #4facfe, #00f2fe);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      width: 90%;
+      max-width: 400px;
+    }
+    h2 {
+      text-align: center;
+    }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 1rem;
+    }
+    .toggle {
+      margin-top: 20px;
+      text-align: center;
+      cursor: pointer;
+      color: #0084ff;
+    }
+    .avatar-preview {
+      width: 60px;
+      height: 60px;
+      margin: 10px auto;
+      border-radius: 50%;
+      object-fit: cover;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2 id="form-title">Login</h2>
+    <img id="avatar-preview" class="avatar-preview" />
+    <input type="email" id="email" placeholder="Email" />
+    <input type="password" id="password" placeholder="Password" />
+
+    <div id="signup-fields" style="display: none;">
+      <input type="text" id="username" placeholder="Username" />
+      <input type="file" id="avatar" accept="image/*" />
+    </div>
+
+    <button onclick="submitForm()">Continue</button>
+
+    <div class="toggle" onclick="toggleForm()">
+      Don't have an account? Sign up
+    </div>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    const supabase = createClient(
+      'https://zydoulkivhwyxmdnggdu.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5ZG91bGtpdmh3eXhtZG5nZ2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA3NjM3NjEsImV4cCI6MjA2NjMzOTc2MX0.U0mbv30WCLX1jcoc7UiF8wil_XQHOVH8fN-Vfj0Ib6U'
+    );
+
+    let isSignup = false;
+
+    function toggleForm() {
+      isSignup = !isSignup;
+      document.getElementById("form-title").innerText = isSignup ? "Sign Up" : "Login";
+      document.getElementById("signup-fields").style.display = isSignup ? "block" : "none";
+      document.querySelector(".toggle").innerText = isSignup ? "Already have an account? Login" : "Don't have an account? Sign up";
+    }
+
+    async function submitForm() {
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+
+      if (isSignup) {
+        const username = document.getElementById("username").value;
+        const avatarFile = document.getElementById("avatar").files[0];
+
+        if (!avatarFile || !username) return alert("Username & avatar required!");
+
+        const { data: avatarUpload, error: avatarErr } = await supabase.storage
+          .from("avatars")
+          .upload(`public/${Date.now()}_${avatarFile.name}`, avatarFile);
+
+        if (avatarErr) return alert("Avatar upload failed");
+
+        const avatarUrl = `https://zydoulkivhwyxmdnggdu.supabase.co/storage/v1/object/public/${avatarUpload.path}`;
+
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) return alert(error.message);
+
+        const userId = data.user.id;
+
+        await supabase.from("profiles").upsert({
+          id: userId,
+          username,
+          avatar_url: avatarUrl,
+        });
+
+        alert("Signup successful! Logging in...");
+        window.location.href = "chat.html";
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) return alert(error.message);
+        window.location.href = "chat.html";
+      }
+    }
+
+    // preview avatar image
+    document.getElementById("avatar")?.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = document.getElementById("avatar-preview");
+          img.src = reader.result;
+          img.style.display = "block";
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  </script>
+</body>
+</html>

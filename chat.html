@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Messenger Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #f0f2f5;
+      display: flex;
+      height: 100vh;
+    }
+    #sidebar {
+      width: 250px;
+      background: #fff;
+      border-right: 1px solid #ccc;
+      overflow-y: auto;
+    }
+    #chat-area {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .user {
+      padding: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #eee;
+    }
+    .user img {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      margin-right: 10px;
+    }
+    .user:hover {
+      background: #f5f5f5;
+    }
+    #messages {
+      flex-grow: 1;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    .message {
+      margin-bottom: 10px;
+      max-width: 70%;
+      padding: 8px 12px;
+      border-radius: 10px;
+      clear: both;
+    }
+    .sent {
+      background: #0084ff;
+      color: white;
+      margin-left: auto;
+      border-bottom-right-radius: 0;
+    }
+    .received {
+      background: #e4e6eb;
+      color: #000;
+      margin-right: auto;
+      border-bottom-left-radius: 0;
+    }
+    form {
+      display: flex;
+      padding: 10px;
+      background: white;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      font-size: 1rem;
+    }
+    input[type="file"] {
+      margin-left: 5px;
+    }
+    button {
+      padding: 0 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar"></div>
+
+  <div id="chat-area">
+    <div id="messages"></div>
+    <form id="message-form">
+      <input type="text" id="message" placeholder="Aa" autocomplete="off" />
+      <input type="file" id="image" accept="image/*" />
+      <button type="submit">Send</button>
+    </form>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    const supabase = createClient(
+      'https://zydoulkivhwyxmdnggdu.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5ZG91bGtpdmh3eXhtZG5nZ2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA3NjM3NjEsImV4cCI6MjA2NjMzOTc2MX0.U0mbv30WCLX1jcoc7UiF8wil_XQHOVH8fN-Vfj0Ib6U'
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) location.href = 'login.html';
+
+    let currentReceiverId = null;
+
+    const sidebar = document.getElementById('sidebar');
+    const messagesDiv = document.getElementById('messages');
+    const messageForm = document.getElementById('message-form');
+    const messageInput = document.getElementById('message');
+    const imageInput = document.getElementById('image');
+
+    async function fetchUsers() {
+      const { data: users } = await supabase.rpc('get_user_profiles');
+      users.forEach(u => {
+        if (u.id !== user.id) {
+          const div = document.createElement('div');
+          div.className = 'user';
+          div.innerHTML = `
+            <img src="${u.avatar_url || 'https://i.pravatar.cc/32'}" />
+            <span>${u.username || u.email}</span>
+          `;
+          div.onclick = () => {
+            currentReceiverId = u.id;
+            loadMessages();
+          };
+          sidebar.appendChild(div);
+        }
+      });
+    }
+
+    async function loadMessages() {
+      const { data } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${currentReceiverId}),and(sender_id.eq.${currentReceiverId},receiver_id.eq.${user.id})`)
+        .order('created_at', { ascending: true });
+
+      renderMessages(data);
+    }
+
+    function renderMessages(data) {
+      messagesDiv.innerHTML = '';
+      data.forEach(msg => {
+        const div = document.createElement('div');
+        div.className = 'message';
+        div.classList.add(msg.sender_id === user.id ? 'sent' : 'received');
+
+        if (msg.message_image_url) {
+          div.innerHTML = `<img src="${msg.message_image_url}" style="max-width: 100%" />`;
+        }
+        if (msg.message_text) {
+          div.innerHTML += `<div>${msg.message_text}</div>`;
+        }
+
+        messagesDiv.appendChild(div);
+      });
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    async function sendMessage(e) {
+      e.preventDefault();
+      if (!currentReceiverId) return alert("Select a user to chat");
+
+      let imageUrl = null;
+      if (imageInput.files[0]) {
+        const file = imageInput.files[0];
+        const { data, error } = await supabase.storage.from("avatars").upload(`chat/${Date.now()}_${file.name}`, file);
+        if (error) return alert("Image upload failed");
+        imageUrl = `https://zydoulkivhwyxmdnggdu.supabase.co/storage/v1/object/public/${data.path}`;
+      }
+
+      await supabase.from('messages').insert({
+        sender_id: user.id,
+        receiver_id: currentReceiverId,
+        message_text: messageInput.value,
+        message_image_url: imageUrl
+      });
+
+      messageInput.value = '';
+      imageInput.value = '';
+    }
+
+    supabase
+      .channel('public:messages')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, loadMessages)
+      .subscribe();
+
+    messageForm.addEventListener('submit', sendMessage);
+
+    fetchUsers();
+  </script>
+</body>
+</html>
